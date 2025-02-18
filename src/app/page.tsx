@@ -1,9 +1,10 @@
 import ValuesPrioritization from './components/ValuesPrioritization';
+import ProtectedRoute from './components/ProtectedRoute';
 
 export default function Home() {
   return (
-    <main className="min-h-screen bg-white">
+    <ProtectedRoute>
       <ValuesPrioritization />
-    </main>
+    </ProtectedRoute>
   );
 }

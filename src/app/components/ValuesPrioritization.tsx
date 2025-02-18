@@ -1,7 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
+import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
+import { UserCircleIcon, PrinterIcon, PlusCircleIcon, ArrowDownTrayIcon } from '@heroicons/react/24/outline'
+import { useAuth } from '@/lib/hooks/useAuth';
+import { useRouter } from 'next/navigation';
+import ProfileDropdown from '@/app/components/ProfileDropdown';
+import { generateValuesPDF } from '@/lib/utils/pdfGenerator';
 
 // Define the structure for our value items
 interface ValueItem {
@@ -68,112 +73,242 @@ const initialColumns: { [key: string]: Column } = {
 };
 
 export default function ValuesPrioritization() {
+  console.log('Component mounted');
   const [columns, setColumns] = useState(initialColumns);
+  const { user, signInWithGoogle, signOut } = useAuth();
+  const router = useRouter();
+  
+  // Add this console log
+  console.log('Auth state:', { user, hasSignIn: !!signInWithGoogle, hasSignOut: !!signOut });
 
   const handleValueClick = (columnId: string, valueId: string) => {
     setColumns(prevColumns => {
       const newColumns = { ...prevColumns };
-      const column = { ...newColumns[columnId] };
-      newColumns[columnId] = column;
       
-      const valueIndex = column.values.findIndex(v => v.id === valueId);
-      if (valueIndex !== -1) {
-        const values = [...column.values];
-        values[valueIndex] = {
-          ...values[valueIndex],
-          isHighlighted: !values[valueIndex].isHighlighted
-        };
-        column.values = values;
+      // If clicking in column4, move the item back to its original column
+      if (columnId === 'column4') {
+        const column4 = newColumns[columnId];
+        const valueIndex = column4.values.findIndex(v => v.id === valueId);
+        
+        if (valueIndex !== -1) {
+          const value = column4.values[valueIndex];
+          // Remove from column4 first
+          const newColumn4Values = [...column4.values];
+          newColumn4Values.splice(valueIndex, 1);
+          newColumns[columnId] = {
+            ...column4,
+            values: newColumn4Values,
+          };
+
+          // Determine original column based on id range
+          const idNumber = parseInt(value.id.split('-')[1]);
+          let originalColumnId;
+          if (idNumber >= 41) {
+            originalColumnId = 'column3';
+          } else if (idNumber >= 21) {
+            originalColumnId = 'column2';
+          } else {
+            originalColumnId = 'column1';
+          }
+
+          // Add to original column
+          const originalColumn = newColumns[originalColumnId];
+          newColumns[originalColumnId] = {
+            ...originalColumn,
+            values: [...originalColumn.values, { ...value, isHighlighted: false }],
+          };
+
+          return newColumns;
+        }
+      } else {
+        // Original highlight toggle behavior for other columns
+        const column = { ...newColumns[columnId] };
+        const valueIndex = column.values.findIndex(v => v.id === valueId);
+        
+        if (valueIndex !== -1) {
+          const values = [...column.values];
+          values[valueIndex] = {
+            ...values[valueIndex],
+            isHighlighted: !values[valueIndex].isHighlighted
+          };
+          column.values = values;
+          newColumns[columnId] = column;
+        }
       }
       
       return newColumns;
     });
   };
 
-  const onDragEnd = (result: any) => {
+  const onDragEnd = (result: DropResult) => {
     const { source, destination } = result;
 
-    if (!destination) return;
-
-    if (
-      source.droppableId === destination.droppableId &&
-      source.index === destination.index
+    if (!destination || 
+        (source.droppableId === destination.droppableId && 
+         source.index === destination.index)
     ) {
       return;
     }
 
-    const sourceColumn = columns[source.droppableId];
-    const destColumn = columns[destination.droppableId];
+    const start = columns[source.droppableId];
+    const finish = columns[destination.droppableId];
 
-    const sourceValues = [...sourceColumn.values];
-    const destValues = [...destColumn.values];
+    if (start === finish) {
+      // Moving within the same column
+      const newValues = Array.from(start.values);
+      const [removed] = newValues.splice(source.index, 1);
+      newValues.splice(destination.index, 0, removed);
 
-    const [removed] = sourceValues.splice(source.index, 1);
-    destValues.splice(destination.index, 0, removed);
+      setColumns(prev => ({
+        ...prev,
+        [source.droppableId]: {
+          ...start,
+          values: newValues,
+        },
+      }));
+    } else {
+      // Moving from one column to another
+      const startValues = Array.from(start.values);
+      const [removed] = startValues.splice(source.index, 1);
+      
+      const finishValues = Array.from(finish.values);
+      finishValues.splice(destination.index, 0, {
+        ...removed,
+        isHighlighted: destination.droppableId === 'column4' ? true : removed.isHighlighted
+      });
 
-    setColumns({
-      ...columns,
-      [source.droppableId]: {
-        ...sourceColumn,
-        values: sourceValues,
-      },
-      [destination.droppableId]: {
-        ...destColumn,
-        values: destValues,
-      },
-    });
+      setColumns(prev => ({
+        ...prev,
+        [source.droppableId]: {
+          ...start,
+          values: startValues,
+        },
+        [destination.droppableId]: {
+          ...finish,
+          values: finishValues,
+        },
+      }));
+    }
+  };
+
+  const handleProfileClick = async () => {
+    console.log('Profile clicked');
+    try {
+      if (user) {
+        console.log('Attempting to sign out');
+        await signOut();
+      } else {
+        console.log('Redirecting to login page');
+        router.push('/login');
+      }
+    } catch (error) {
+      console.error('Auth error:', error);
+    }
+  };
+
+  const handleDownload = async () => {
+    const topValues = columns.column4.values;
+    const userName = user?.displayName || undefined;
+    await generateValuesPDF(topValues, userName);
   };
 
   return (
-    <div className="p-4 md:p-8">
-      <h1 className="text-3xl font-bold text-center mb-6">Prioritize Your Values</h1>
-      <div className="flex gap-4 overflow-x-auto pb-4">
-        <DragDropContext onDragEnd={onDragEnd}>
-          {Object.entries(columns).map(([columnId, column]) => (
-            <div key={columnId} className="flex-1 min-w-[220px]">
-              <h2 className="font-semibold text-lg mb-3">{column.title}</h2>
-              <Droppable droppableId={columnId}>
-                {(provided, snapshot) => (
-                  <div
-                    {...provided.droppableProps}
-                    ref={provided.innerRef}
-                    className={`p-2 rounded-lg min-h-[500px] ${
-                      snapshot.isDraggingOver
-                        ? 'bg-blue-50'
-                        : 'bg-gray-50'
-                    }`}
-                  >
-                    {column.values.map((value, index) => (
-                      <Draggable
-                        key={value.id}
-                        draggableId={value.id}
-                        index={index}
-                      >
-                        {(provided, snapshot) => (
-                          <div
-                            ref={provided.innerRef}
-                            {...provided.draggableProps}
-                            {...provided.dragHandleProps}
-                            onClick={() => handleValueClick(columnId, value.id)}
-                            className={`p-2 mb-1 text-sm rounded-lg cursor-pointer select-none
-                              ${snapshot.isDragging ? 'shadow-lg' : ''}
-                              ${value.isHighlighted 
-                                ? 'bg-gray-500 text-white' 
-                                : 'bg-white hover:bg-gray-100'} 
-                              border border-gray-200 transition-all duration-200`}
-                          >
-                            {value.content}
-                          </div>
-                        )}
-                      </Draggable>
-                    ))}
-                    {provided.placeholder}
-                  </div>
-                )}
-              </Droppable>
-            </div>
-          ))}
-        </DragDropContext>
+    <div className="min-h-screen bg-white">
+      {/* Header Bar */}
+      <div className="flex justify-between items-center bg-gray-900 text-white px-6 py-4">
+        <h1 className="text-xl font-semibold">Prioritize Your Values</h1>
+        
+        <div className="flex items-center gap-4">
+          <button
+            className="p-2 hover:bg-gray-700 rounded-full transition-colors"
+            title="New"
+          >
+            <PlusCircleIcon className="w-6 h-6" />
+          </button>
+
+          <button
+            onClick={handleDownload}
+            className="p-2 hover:bg-gray-700 rounded-full transition-colors"
+            title="Download PDF"
+          >
+            <ArrowDownTrayIcon className="w-6 h-6" />
+          </button>
+          
+          <button
+            className="p-2 hover:bg-gray-700 rounded-full transition-colors"
+            title="Print"
+          >
+            <PrinterIcon className="w-6 h-6" />
+          </button>
+          
+          <ProfileDropdown />
+        </div>
+      </div>
+
+      <div className="p-4 md:p-8 font-sans">
+        <div className="flex gap-4 overflow-x-auto pb-4">
+          <DragDropContext onDragEnd={onDragEnd}>
+            {Object.entries(columns).map(([columnId, column]) => (
+              <div key={columnId} className="flex-1 min-w-[220px]">
+                <Droppable droppableId={columnId}>
+                  {(provided, snapshot) => (
+                    <div
+                      {...provided.droppableProps}
+                      ref={provided.innerRef}
+                      className={`p-2 rounded-lg min-h-[500px] ${
+                        snapshot.isDraggingOver
+                          ? 'bg-[#F4F4F5]'
+                          : 'bg-[#FAFAFA]'
+                      }`}
+                    >
+                      {column.values.map((value, index) => (
+                        <Draggable
+                          key={value.id}
+                          draggableId={value.id}
+                          index={index}
+                        >
+                          {(provided, snapshot) => (
+                            <div
+                              ref={provided.innerRef}
+                              {...provided.draggableProps}
+                              {...provided.dragHandleProps}
+                              onClick={() => handleValueClick(columnId, value.id)}
+                              className={`p-2.5 mb-1 text-sm rounded-md cursor-pointer select-none flex items-center gap-3
+                                ${snapshot.isDragging ? 'shadow-sm ring-1 ring-[#E4E4E7]' : ''}
+                                ${columnId === 'column4' 
+                                  ? 'bg-[#18181B] text-white hover:bg-[#27272A]' 
+                                  : value.isHighlighted 
+                                    ? 'bg-[#18181B] text-white' 
+                                    : 'bg-white hover:bg-[#F4F4F5]'} 
+                                border border-[#E4E4E7] transition-all duration-200`}
+                              style={provided.draggableProps.style}
+                            >
+                              {columnId === 'column4' && (
+                                <span className="text-sm font-semibold mr-2 w-8">
+                                  {(index + 1).toString().padStart(2, '0')}.
+                                </span>
+                              )}
+                              <div className="grid grid-cols-2 gap-[2px] px-0.5">
+                                <div className="w-[2px] h-[2px] rounded-full bg-current opacity-50"></div>
+                                <div className="w-[2px] h-[2px] rounded-full bg-current opacity-50"></div>
+                                <div className="w-[2px] h-[2px] rounded-full bg-current opacity-50"></div>
+                                <div className="w-[2px] h-[2px] rounded-full bg-current opacity-50"></div>
+                                <div className="w-[2px] h-[2px] rounded-full bg-current opacity-50"></div>
+                                <div className="w-[2px] h-[2px] rounded-full bg-current opacity-50"></div>
+                              </div>
+                              <span className="text-sm font-medium">{value.content}</span>
+                            </div>
+                          )}
+                        </Draggable>
+                      ))}
+                      {provided.placeholder}
+                    </div>
+                  )}
+                </Droppable>
+              </div>
+            ))}
+          </DragDropContext>
+        </div>
       </div>
     </div>
   );
