@@ -11,6 +11,8 @@ import {
   doc,
   updateDoc,
   deleteDoc,
+  setDoc,
+  getDoc,
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
@@ -45,6 +47,34 @@ export const updateDocument = (collectionName: string, id: string, data: any) =>
 
 export const deleteDocument = (collectionName: string, id: string) =>
   deleteDoc(doc(db, collectionName, id));
+
+export const saveUserValues = async (userId: string, values: any) => {
+  try {
+    const userValuesRef = doc(db, 'userValues', userId);
+    await setDoc(userValuesRef, {
+      values,
+      updatedAt: new Date().toISOString()
+    });
+    return true;
+  } catch (error) {
+    console.error('Error saving values:', error);
+    return false;
+  }
+};
+
+export const getUserValues = async (userId: string) => {
+  try {
+    const userValuesRef = doc(db, 'userValues', userId);
+    const docSnap = await getDoc(userValuesRef);
+    if (docSnap.exists()) {
+      return docSnap.data();
+    }
+    return null;
+  } catch (error) {
+    console.error('Error getting values:', error);
+    return null;
+  }
+};
 
 // Storage functions
 export const uploadFile = async (file: File, path: string) => {
