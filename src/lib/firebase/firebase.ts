@@ -1,5 +1,5 @@
 import { initializeApp, getApps } from "firebase/app";
-import { getAuth, setPersistence, browserLocalPersistence } from "firebase/auth";
+import { getAuth, browserLocalPersistence } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
@@ -12,18 +12,48 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID
 };
 
-// Initialize Firebase
-const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
+// Add better error checking for config
+const validateConfig = () => {
+  const requiredFields = [
+    'apiKey',
+    'authDomain',
+    'projectId',
+    'storageBucket',
+    'messagingSenderId',
+    'appId'
+  ];
+
+  const missingFields = requiredFields.filter(field => !firebaseConfig[field]);
+  
+  if (missingFields.length > 0) {
+    console.error('Missing Firebase configuration fields:', missingFields);
+    throw new Error('Invalid Firebase configuration');
+  }
+};
+
+try {
+  validateConfig();
+  console.log('Firebase config check:', {
+    hasApiKey: !!firebaseConfig.apiKey,
+    hasAuthDomain: !!firebaseConfig.authDomain,
+    hasProjectId: !!firebaseConfig.projectId,
+  });
+} catch (error) {
+  console.error('Firebase initialization error:', error);
+}
+
+// Initialize Firebase only if it hasn't been initialized already
+const app = !getApps().length ? initializeApp(firebaseConfig) : getApps()[0];
 const auth = getAuth(app);
 const db = getFirestore(app);
 const storage = getStorage(app);
 
 // Enable persistent auth state
-setPersistence(auth, browserLocalPersistence)
+auth.setPersistence(browserLocalPersistence)
   .catch((error) => {
     console.error('Auth persistence error:', error);
   });
 
-export { app, auth, db, storage };
+export { auth, db, storage };
 
 export default app;

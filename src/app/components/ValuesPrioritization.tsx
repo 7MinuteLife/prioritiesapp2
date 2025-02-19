@@ -2,14 +2,15 @@
 
 import { useState, useEffect } from 'react';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
-import { UserCircleIcon, PrinterIcon, PlusCircleIcon, ArrowDownTrayIcon, BookmarkIcon } from '@heroicons/react/24/outline'
+import { UserCircleIcon, PrinterIcon, PlusCircleIcon, ArrowDownTrayIcon, BookmarkIcon, FolderIcon, DocumentPlusIcon, FolderOpenIcon, Squares2X2Icon } from '@heroicons/react/24/outline'
 import { useAuth } from '@/lib/hooks/useAuth';
 import { useRouter } from 'next/navigation';
 import ProfileDropdown from '@/app/components/ProfileDropdown';
 import { generateValuesPDF } from '@/lib/utils/pdfGenerator';
-import { saveUserValues, getUserValues } from '@/lib/firebase/firebaseUtils';
+import { saveUserValues, getUserValues, getUserPriorityLists } from '@/lib/firebase/firebaseUtils';
 import { toast } from 'react-hot-toast';
 import AIHelper from './AIHelper';
+import Header from './Header';
 
 // Define the structure for our value items
 interface ValueItem {
@@ -92,35 +93,113 @@ export default function ValuesPrioritization() {
   useEffect(() => {
     const loadSavedValues = async () => {
       if (user?.uid) {
-        const savedData = await getUserValues(user.uid);
-        if (savedData?.values) {
-          setColumns(savedData.values);
+        const params = new URLSearchParams(window.location.search);
+        const listId = params.get('listId');
+        
+        if (listId) {
+          const savedData = await getUserValues(user.uid, listId);
+          if (savedData?.values) {
+            setColumns(savedData.values);
+            setCurrentListName(savedData.listName);
+          }
         }
       }
     };
     loadSavedValues();
   }, [user]);
 
-  const handleSave = async () => {
+  // At the top of the component, add this logging
+  useEffect(() => {
+    console.log('Current user state:', {
+      isAuthenticated: !!user,
+      userId: user?.uid,
+      userEmail: user?.email,
+      fullUserObject: user
+    });
+  }, [user]);
+
+  // Add this state at the top of your component
+  const [saveAsName, setSaveAsName] = useState('');
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+
+  // First, add this state for managing lists
+  const [selectedList, setSelectedList] = useState<string>('');
+
+  // Add listName to state
+  const [currentListName, setCurrentListName] = useState('');
+
+  // Add these new states
+  const [showNewNameInput, setShowNewNameInput] = useState(false);
+
+  // Modify handleSaveAs to include more logging
+  const handleSaveAs = async () => {
+    console.log('Save attempt - Auth state:', {
+      isAuthenticated: !!user,
+      userId: user?.uid,
+      userEmail: user?.email
+    });
+
     if (!user) {
       toast.error('Please sign in to save your values');
       return;
     }
 
+    if (!saveAsName.trim()) {
+      toast.error('Please enter a name for your priority list');
+      return;
+    }
+
     setIsSaving(true);
     try {
-      const saved = await saveUserValues(user.uid, columns);
+      // Clean up the data before saving
+      const dataToSave = {
+        column1: { ...columns.column1, values: columns.column1.values.map(v => ({ ...v })) },
+        column2: { ...columns.column2, values: columns.column2.values.map(v => ({ ...v })) },
+        column3: { ...columns.column3, values: columns.column3.values.map(v => ({ ...v })) },
+        column4: { ...columns.column4, values: columns.column4.values.map(v => ({ ...v })) }
+      };
+
+      console.log('Save attempt - Data:', { 
+        userId: user.uid, 
+        listName: saveAsName,
+        dataToSave 
+      });
+
+      const saved = await saveUserValues(user.uid, dataToSave, saveAsName);
+      console.log('Save result:', saved);
+
       if (saved) {
         toast.success('Values saved successfully!');
+        setShowSaveDialog(false);
+        setSaveAsName('');
       } else {
         toast.error('Failed to save values');
       }
-    } catch (error) {
-      console.error('Error saving values:', error);
-      toast.error('An error occurred while saving');
+    } catch (error: any) { // Type assertion to handle error.message
+      console.error('Save error details:', {
+        error,
+        message: error.message,
+        code: error.code,
+        stack: error.stack
+      });
+      toast.error(`Save failed: ${error.message}`);
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const handleSave = () => {
+    if (!user) {
+      toast.error('Please sign in to save your values');
+      return;
+    }
+
+    if (columns.column4.values.length === 0) {
+      toast.error('Please add some priorities before saving');
+      return;
+    }
+
+    setShowSaveDialog(true);
   };
 
   const handleValueClick = (columnId: string, valueId: string) => {
@@ -267,56 +346,119 @@ export default function ValuesPrioritization() {
     return column4Values.map(v => v.content);
   };
 
+  const [savedLists, setSavedLists] = useState<Array<{id: string, listName: string}>>([]);
+
+  // Add this useEffect to load saved lists
+  useEffect(() => {
+    const loadSavedLists = async () => {
+      if (user?.uid) {
+        const lists = await getUserPriorityLists(user.uid);
+        setSavedLists(lists);
+        console.log('Saved lists:', lists);
+      }
+    };
+    loadSavedLists();
+  }, [user]);
+
+  // Add this function to handle list loading
+  const handleLoadList = async (listId: string) => {
+    if (!listId) return;
+    
+    try {
+      const data = await getUserValues(user!.uid, listId);
+      if (data?.values) {
+        // Add confirmation if there are unsaved changes
+        if (columns.column4.values.length > 0) {
+          if (window.confirm('Loading a new list will replace your current values. Continue?')) {
+            setColumns(data.values);
+            toast.success(`Loaded "${data.listName}" successfully!`);
+            setSelectedList(listId);
+          } else {
+            // Reset dropdown if user cancels
+            setSelectedList('');
+          }
+        } else {
+          setColumns(data.values);
+          toast.success(`Loaded "${data.listName}" successfully!`);
+          setSelectedList(listId);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading list:', error);
+      toast.error('Failed to load list');
+      setSelectedList('');
+    }
+  };
+
+  // Add the handleSaveExisting function
+  const handleSaveExisting = async () => {
+    if (!user || !currentListName) return;
+
+    setIsSaving(true);
+    try {
+      // Get listId from URL
+      const params = new URLSearchParams(window.location.search);
+      const listId = params.get('listId');
+      
+      if (!listId) {
+        toast.error('Error: Could not find list to update');
+        return;
+      }
+
+      const dataToSave = {
+        column1: { ...columns.column1, values: columns.column1.values.map(v => ({ ...v })) },
+        column2: { ...columns.column2, values: columns.column2.values.map(v => ({ ...v })) },
+        column3: { ...columns.column3, values: columns.column3.values.map(v => ({ ...v })) },
+        column4: { ...columns.column4, values: columns.column4.values.map(v => ({ ...v })) }
+      };
+
+      const saved = await saveUserValues(user.uid, dataToSave, currentListName, listId);
+      
+      if (saved) {
+        toast.success('List updated successfully!');
+        setShowSaveDialog(false);
+      } else {
+        toast.error('Failed to update list');
+      }
+    } catch (error: any) {
+      console.error('Update error:', error);
+      toast.error(`Update failed: ${error.message}`);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-white">
-      {/* Header Bar */}
-      <div className="flex justify-between items-center bg-gray-900 text-white px-6 py-4">
-        <h1 className="text-xl font-semibold">Prioritize Your Values</h1>
-        
-        <div className="flex items-center gap-4">
-          <button
-            className="p-2 hover:bg-gray-700 rounded-full transition-colors"
-            title="New"
-          >
-            <PlusCircleIcon className="w-6 h-6" />
-          </button>
-
-          <button
-            onClick={handleDownload}
-            className="p-2 hover:bg-gray-700 rounded-full transition-colors"
-            title="Download PDF"
-          >
-            <ArrowDownTrayIcon className="w-6 h-6" />
-          </button>
-          
-          <button
-            onClick={handleSave}
-            disabled={isSaving}
-            className={`flex items-center gap-2 px-3 py-2 hover:bg-gray-700 rounded-lg transition-colors ${isSaving ? 'opacity-50 cursor-not-allowed' : ''}`}
-            title="Save Values"
-          >
-            <BookmarkIcon className="w-5 h-5" />
-            <span>{isSaving ? 'Saving...' : 'Save'}</span>
-          </button>
-
-          <button
-            className="p-2 hover:bg-gray-700 rounded-full transition-colors"
-            title="Print"
-          >
-            <PrinterIcon className="w-6 h-6" />
-          </button>
-          
-          <ProfileDropdown />
-        </div>
-      </div>
+      <Header 
+        title="Prioritize Your Values"
+        onSave={handleSave}
+        isSaving={isSaving}
+        onPrint={() => window.print()}
+        onDownload={() => generateValuesPDF(columns.column4.values.map(v => v.content))}
+      />
 
       <div className="p-4 md:p-8 font-sans">
         {/* Mobile-first layout */}
         <DragDropContext onDragEnd={onDragEnd}>
-          <div className="flex flex-col md:flex-row gap-4">
+          <div className="flex flex-col md:flex-row gap-4 overflow-x-auto pb-4 md:justify-center">
             {/* Column 4 always shows first on mobile */}
             <div className="w-full md:hidden mb-4">
-              <div className="flex-1 min-w-[180px]">
+              <div className="min-w-[250px] max-w-[350px] mx-auto">
+                <div className="flex justify-between items-center mb-2">
+                  <h2 className="text-lg font-semibold text-gray-900">Your Top 10 Priorities</h2>
+                  <button
+                    onClick={handleSave}
+                    disabled={isSaving}
+                    className={`flex items-center gap-1 px-2 py-1 text-sm rounded-md transition-colors
+                      ${isSaving 
+                        ? 'bg-gray-100 text-gray-400 cursor-not-allowed' 
+                        : 'bg-gray-900 text-white hover:bg-gray-800'}`}
+                  >
+                    <BookmarkIcon className="w-4 h-4" />
+                    <span>{isSaving ? 'Saving...' : 'Save'}</span>
+                  </button>
+                </div>
                 <Droppable droppableId="column4">
                   {(provided, snapshot) => (
                     <div
@@ -348,9 +490,10 @@ export default function ValuesPrioritization() {
                               onClick={() => handleValueClick('column4', value.id)}
                               className="p-2 mb-1 text-sm rounded-md cursor-pointer select-none flex items-center gap-2
                                 bg-[#18181B] text-white hover:bg-[#27272A]
-                                border border-[#E4E4E7] transition-all duration-200"
+                                border border-[#E4E4E7] transition-all duration-200
+                                whitespace-nowrap w-full"
                             >
-                              <div className="grid grid-cols-2 gap-[2px] px-0.5">
+                              <div className="grid grid-cols-2 gap-[2px] px-0.5 shrink-0">
                                 <div className="w-[2px] h-[2px] rounded-full bg-current opacity-50"></div>
                                 <div className="w-[2px] h-[2px] rounded-full bg-current opacity-50"></div>
                                 <div className="w-[2px] h-[2px] rounded-full bg-current opacity-50"></div>
@@ -358,10 +501,10 @@ export default function ValuesPrioritization() {
                                 <div className="w-[2px] h-[2px] rounded-full bg-current opacity-50"></div>
                                 <div className="w-[2px] h-[2px] rounded-full bg-current opacity-50"></div>
                               </div>
-                              <span className="text-sm font-semibold mr-2 w-8">
+                              <span className="text-sm font-semibold mr-2 w-8 shrink-0">
                                 {(index + 1).toString().padStart(2, '0')}.
                               </span>
-                              <span className="text-sm font-medium">{value.content}</span>
+                              <span className="text-sm font-medium flex-1">{value.content}</span>
                             </div>
                           )}
                         </Draggable>
@@ -374,118 +517,133 @@ export default function ValuesPrioritization() {
             </div>
 
             {/* Main content area */}
-            <div className="flex flex-col md:flex-row gap-4 overflow-x-auto pb-4">
-              {Object.entries(columns).map(([columnId, column]) => (
-                columnId !== 'column4' && (
-                  <div key={columnId} className="flex-1 min-w-[180px]">
-                    <Droppable droppableId={columnId}>
-                      {(provided, snapshot) => (
-                        <div
-                          {...provided.droppableProps}
-                          ref={provided.innerRef}
-                          className={`p-1.5 rounded-lg min-h-[450px] ${
-                            snapshot.isDraggingOver
-                              ? 'bg-[#F4F4F5]'
-                              : 'bg-[#FAFAFA]'
-                          }`}
-                        >
-                          {column.values.map((value, index) => (
-                            <Draggable
-                              key={value.id}
-                              draggableId={value.id}
-                              index={index}
-                            >
-                              {(provided, snapshot) => (
-                                <div
-                                  ref={provided.innerRef}
-                                  {...provided.draggableProps}
-                                  {...provided.dragHandleProps}
-                                  onClick={() => handleValueClick(columnId, value.id)}
-                                  className={`p-2 mb-1 text-sm rounded-md cursor-pointer select-none flex items-center gap-2
-                                    ${snapshot.isDragging ? 'shadow-sm ring-1 ring-[#E4E4E7]' : ''}
-                                    ${value.isHighlighted 
-                                      ? 'bg-[#18181B] text-white' 
-                                      : 'bg-white hover:bg-[#F4F4F5]'} 
-                                    border border-[#E4E4E7] transition-all duration-200`}
-                                  style={provided.draggableProps.style}
-                                >
-                                  <div className="grid grid-cols-2 gap-[2px] px-0.5">
-                                    <div className="w-[2px] h-[2px] rounded-full bg-current opacity-50"></div>
-                                    <div className="w-[2px] h-[2px] rounded-full bg-current opacity-50"></div>
-                                    <div className="w-[2px] h-[2px] rounded-full bg-current opacity-50"></div>
-                                    <div className="w-[2px] h-[2px] rounded-full bg-current opacity-50"></div>
-                                    <div className="w-[2px] h-[2px] rounded-full bg-current opacity-50"></div>
-                                    <div className="w-[2px] h-[2px] rounded-full bg-current opacity-50"></div>
-                                  </div>
-                                  <span className="text-sm font-medium">{value.content}</span>
+            {Object.entries(columns).map(([columnId, column]) => (
+              columnId !== 'column4' && (
+                <div key={columnId} className="flex-1 min-w-[250px] max-w-[350px]">
+                  <h2 className="text-lg font-semibold text-gray-900 mb-2">{column.title}</h2>
+                  <Droppable droppableId={columnId}>
+                    {(provided, snapshot) => (
+                      <div
+                        {...provided.droppableProps}
+                        ref={provided.innerRef}
+                        className={`p-1.5 rounded-lg min-h-[450px] ${
+                          snapshot.isDraggingOver
+                            ? 'bg-[#F4F4F5]'
+                            : 'bg-[#FAFAFA]'
+                        }`}
+                      >
+                        {column.values.map((value, index) => (
+                          <Draggable
+                            key={value.id}
+                            draggableId={value.id}
+                            index={index}
+                          >
+                            {(provided, snapshot) => (
+                              <div
+                                ref={provided.innerRef}
+                                {...provided.draggableProps}
+                                {...provided.dragHandleProps}
+                                onClick={() => handleValueClick(columnId, value.id)}
+                                className={`p-2 mb-1 text-sm rounded-md cursor-pointer select-none flex items-center gap-2
+                                  ${snapshot.isDragging ? 'shadow-sm ring-1 ring-[#E4E4E7]' : ''}
+                                  ${value.isHighlighted 
+                                    ? 'bg-[#18181B] text-white' 
+                                    : 'bg-white hover:bg-[#F4F4F5]'} 
+                                  border border-[#E4E4E7] transition-all duration-200
+                                  whitespace-nowrap w-full`}
+                                style={provided.draggableProps.style}
+                              >
+                                <div className="grid grid-cols-2 gap-[2px] px-0.5 shrink-0">
+                                  <div className="w-[2px] h-[2px] rounded-full bg-current opacity-50"></div>
+                                  <div className="w-[2px] h-[2px] rounded-full bg-current opacity-50"></div>
+                                  <div className="w-[2px] h-[2px] rounded-full bg-current opacity-50"></div>
+                                  <div className="w-[2px] h-[2px] rounded-full bg-current opacity-50"></div>
+                                  <div className="w-[2px] h-[2px] rounded-full bg-current opacity-50"></div>
+                                  <div className="w-[2px] h-[2px] rounded-full bg-current opacity-50"></div>
                                 </div>
-                              )}
-                            </Draggable>
-                          ))}
-                          {provided.placeholder}
-                        </div>
-                      )}
-                    </Droppable>
-                  </div>
-                )
-              ))}
-
-              {/* Column 4 for desktop view */}
-              <div className="hidden md:block flex-1 min-w-[180px]">
-                <Droppable droppableId="column4">
-                  {(provided, snapshot) => (
-                    <div
-                      {...provided.droppableProps}
-                      ref={provided.innerRef}
-                      className={`p-1.5 rounded-lg min-h-[450px] ${
-                        columns.column4.values.length === 0 
-                          ? 'bg-gray-100 border-2 border-dashed border-gray-300 flex flex-col items-center justify-center' 
-                          : 'bg-gray-100 border border-gray-200'
-                      }`}
-                    >
-                      {columns.column4.values.length === 0 && (
-                        <div className="text-center text-gray-500">
-                          <p className="mb-2">Click values or drag them here</p>
-                          <p className="text-sm">Select up to 10 values in order of importance</p>
-                        </div>
-                      )}
-                      {columns.column4.values.map((value, index) => (
-                        <Draggable
-                          key={value.id}
-                          draggableId={value.id}
-                          index={index}
-                        >
-                          {(provided, snapshot) => (
-                            <div
-                              ref={provided.innerRef}
-                              {...provided.draggableProps}
-                              {...provided.dragHandleProps}
-                              onClick={() => handleValueClick('column4', value.id)}
-                              className="p-2 mb-1 text-sm rounded-md cursor-pointer select-none flex items-center gap-2
-                                bg-[#18181B] text-white hover:bg-[#27272A]
-                                border border-[#E4E4E7] transition-all duration-200"
-                            >
-                              <div className="grid grid-cols-2 gap-[2px] px-0.5">
-                                <div className="w-[2px] h-[2px] rounded-full bg-current opacity-50"></div>
-                                <div className="w-[2px] h-[2px] rounded-full bg-current opacity-50"></div>
-                                <div className="w-[2px] h-[2px] rounded-full bg-current opacity-50"></div>
-                                <div className="w-[2px] h-[2px] rounded-full bg-current opacity-50"></div>
-                                <div className="w-[2px] h-[2px] rounded-full bg-current opacity-50"></div>
-                                <div className="w-[2px] h-[2px] rounded-full bg-current opacity-50"></div>
+                                <span className="text-sm font-medium flex-1">{value.content}</span>
                               </div>
-                              <span className="text-sm font-semibold mr-2 w-8">
-                                {(index + 1).toString().padStart(2, '0')}.
-                              </span>
-                              <span className="text-sm font-medium">{value.content}</span>
-                            </div>
-                          )}
-                        </Draggable>
-                      ))}
-                      {provided.placeholder}
-                    </div>
-                  )}
-                </Droppable>
+                            )}
+                          </Draggable>
+                        ))}
+                        {provided.placeholder}
+                      </div>
+                    )}
+                  </Droppable>
+                </div>
+              )
+            ))}
+
+            {/* Column 4 for desktop view */}
+            <div className="hidden md:block flex-1 min-w-[250px] max-w-[350px]">
+              <div className="flex justify-between items-center mb-2">
+                <h2 className="text-lg font-semibold text-gray-900">Your Top 10 Priorities</h2>
+                <button
+                  onClick={handleSave}
+                  disabled={isSaving}
+                  className={`flex items-center gap-1 px-2 py-1 text-sm rounded-md transition-colors
+                    ${isSaving 
+                      ? 'bg-gray-100 text-gray-400 cursor-not-allowed' 
+                      : 'bg-gray-900 text-white hover:bg-gray-800'}`}
+                >
+                  <BookmarkIcon className="w-4 h-4" />
+                  <span>{isSaving ? 'Saving...' : 'Save'}</span>
+                </button>
               </div>
+              <Droppable droppableId="column4">
+                {(provided, snapshot) => (
+                  <div
+                    {...provided.droppableProps}
+                    ref={provided.innerRef}
+                    className={`p-1.5 rounded-lg min-h-[450px] ${
+                      columns.column4.values.length === 0 
+                        ? 'bg-gray-100 border-2 border-dashed border-gray-300 flex flex-col items-center justify-center' 
+                        : 'bg-gray-100 border border-gray-200'
+                    }`}
+                  >
+                    {columns.column4.values.length === 0 && (
+                      <div className="text-center text-gray-500">
+                        <p className="mb-2">Click values or drag them here</p>
+                        <p className="text-sm">Select up to 10 values in order of importance</p>
+                      </div>
+                    )}
+                    {columns.column4.values.map((value, index) => (
+                      <Draggable
+                        key={value.id}
+                        draggableId={value.id}
+                        index={index}
+                      >
+                        {(provided, snapshot) => (
+                          <div
+                            ref={provided.innerRef}
+                            {...provided.draggableProps}
+                            {...provided.dragHandleProps}
+                            onClick={() => handleValueClick('column4', value.id)}
+                            className="p-2 mb-1 text-sm rounded-md cursor-pointer select-none flex items-center gap-2
+                              bg-[#18181B] text-white hover:bg-[#27272A]
+                              border border-[#E4E4E7] transition-all duration-200
+                              whitespace-nowrap w-full"
+                          >
+                            <div className="grid grid-cols-2 gap-[2px] px-0.5 shrink-0">
+                              <div className="w-[2px] h-[2px] rounded-full bg-current opacity-50"></div>
+                              <div className="w-[2px] h-[2px] rounded-full bg-current opacity-50"></div>
+                              <div className="w-[2px] h-[2px] rounded-full bg-current opacity-50"></div>
+                              <div className="w-[2px] h-[2px] rounded-full bg-current opacity-50"></div>
+                              <div className="w-[2px] h-[2px] rounded-full bg-current opacity-50"></div>
+                              <div className="w-[2px] h-[2px] rounded-full bg-current opacity-50"></div>
+                            </div>
+                            <span className="text-sm font-semibold mr-2 w-8 shrink-0">
+                              {(index + 1).toString().padStart(2, '0')}.
+                            </span>
+                            <span className="text-sm font-medium flex-1">{value.content}</span>
+                          </div>
+                        )}
+                      </Draggable>
+                    ))}
+                    {provided.placeholder}
+                  </div>
+                )}
+              </Droppable>
             </div>
           </div>
         </DragDropContext>
@@ -498,6 +656,74 @@ export default function ValuesPrioritization() {
         onClose={() => setShowAIHelper(false)}
       />
       */}
+
+      {/* Add this JSX for the save dialog */}
+      {showSaveDialog && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-semibold mb-2">Save Priority List</h3>
+            {currentListName && !showNewNameInput ? (
+              <>
+                <p className="text-sm text-gray-600 mb-4">
+                  Update "{currentListName}" or save as a new list
+                </p>
+                <div className="flex gap-4 mb-4">
+                  <button
+                    onClick={handleSaveExisting}
+                    disabled={isSaving}
+                    className={`flex-1 px-4 py-2 bg-gray-900 text-white rounded-md 
+                      ${isSaving ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-800'}`}
+                  >
+                    {isSaving ? 'Updating...' : 'Update Existing'}
+                  </button>
+                  <button
+                    onClick={() => setShowNewNameInput(true)}
+                    className="flex-1 px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50"
+                  >
+                    Save as New
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="text-sm text-gray-600 mb-4">
+                  {currentListName 
+                    ? 'Enter a new name for your list'
+                    : 'Give your list a meaningful name to help you remember its purpose.'}
+                </p>
+                <input
+                  type="text"
+                  value={saveAsName}
+                  onChange={(e) => setSaveAsName(e.target.value)}
+                  placeholder={currentListName ? `Copy of ${currentListName}` : "Enter a name for your list"}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md mb-4"
+                  autoFocus
+                />
+                <div className="flex justify-end gap-2">
+                  <button
+                    onClick={() => {
+                      setShowSaveDialog(false);
+                      setShowNewNameInput(false);
+                      setSaveAsName('');
+                    }}
+                    className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-md"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSaveAs}
+                    disabled={isSaving || !saveAsName.trim()}
+                    className={`px-4 py-2 bg-gray-900 text-white rounded-md
+                      ${(isSaving || !saveAsName.trim()) ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-800'}`}
+                  >
+                    {isSaving ? 'Saving...' : 'Save'}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 } 

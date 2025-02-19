@@ -48,13 +48,30 @@ export const updateDocument = (collectionName: string, id: string, data: any) =>
 export const deleteDocument = (collectionName: string, id: string) =>
   deleteDoc(doc(db, collectionName, id));
 
-export const saveUserValues = async (userId: string, values: any) => {
+export const saveUserValues = async (
+  userId: string, 
+  values: any, 
+  listName: string, 
+  listId?: string
+) => {
   try {
-    const userValuesRef = doc(db, 'userValues', userId);
-    await setDoc(userValuesRef, {
+    const data = {
       values,
-      updatedAt: new Date().toISOString()
-    });
+      listName,
+      updatedAt: new Date().toISOString(),
+      createdAt: new Date().toISOString()
+    };
+
+    if (listId) {
+      // Update existing document
+      await updateDoc(doc(db, 'users', userId, 'priorityLists', listId), {
+        ...data,
+        updatedAt: new Date().toISOString()
+      });
+    } else {
+      // Create new document
+      await addDoc(collection(db, 'users', userId, 'priorityLists'), data);
+    }
     return true;
   } catch (error) {
     console.error('Error saving values:', error);
@@ -62,9 +79,23 @@ export const saveUserValues = async (userId: string, values: any) => {
   }
 };
 
-export const getUserValues = async (userId: string) => {
+export const getUserPriorityLists = async (userId: string) => {
   try {
-    const userValuesRef = doc(db, 'userValues', userId);
+    const listsRef = collection(db, 'users', userId, 'priorityLists');
+    const querySnapshot = await getDocs(listsRef);
+    return querySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+  } catch (error) {
+    console.error('Error getting priority lists:', error);
+    return [];
+  }
+};
+
+export const getUserValues = async (userId: string, listName: string = 'default') => {
+  try {
+    const userValuesRef = doc(db, 'users', userId, 'priorityLists', listName);
     const docSnap = await getDoc(userValuesRef);
     if (docSnap.exists()) {
       return docSnap.data();
@@ -81,4 +112,14 @@ export const uploadFile = async (file: File, path: string) => {
   const storageRef = ref(storage, path);
   await uploadBytes(storageRef, file);
   return getDownloadURL(storageRef);
+};
+
+export const deleteUserList = async (userId: string, listId: string) => {
+  try {
+    await deleteDoc(doc(db, 'users', userId, 'priorityLists', listId));
+    return true;
+  } catch (error) {
+    console.error('Error deleting list:', error);
+    return false;
+  }
 };
