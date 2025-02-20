@@ -79,25 +79,50 @@ const initialColumns: { [key: string]: Column } = {
 };
 
 export default function ValuesPrioritization() {
-  console.log('Component mounted');
   const [columns, setColumns] = useState(initialColumns);
   const [isSaving, setIsSaving] = useState(false);
   const [showAIHelper, setShowAIHelper] = useState(false);
   const { user, signInWithGoogle, signOut } = useAuth();
   const router = useRouter();
-  
-  // Add this console log
-  console.log('Auth state:', { user, hasSignIn: !!signInWithGoogle, hasSignOut: !!signOut });
 
-  // Load saved values when component mounts
+  // Add logging for initial mount and data
   useEffect(() => {
+    console.log('=== ValuesPrioritization Component ===');
+    console.log('1. Initial Mount State:', {
+      initialColumns,
+      hasUser: !!user,
+      userId: user?.uid
+    });
+  }, []);
+
+  // Add logging for columns changes
+  useEffect(() => {
+    console.log('2. Columns Updated:', {
+      totalColumns: Object.keys(columns).length,
+      column4Items: columns.column4.values.length,
+      timestamp: new Date().toISOString()
+    });
+  }, [columns]);
+
+  // Single useEffect for component mount and auth state
+  useEffect(() => {
+    console.log('ValuesPrioritization - Mount Status:', {
+      isInitialMount: true,
+      hasUser: !!user,
+      userId: user?.uid || 'not authenticated'
+    });
+
+    // Load saved values when component mounts and user exists
     const loadSavedValues = async () => {
       if (user?.uid) {
         const params = new URLSearchParams(window.location.search);
         const listId = params.get('listId');
         
         if (listId) {
+          console.log('Loading saved values for list:', listId);
           const savedData = await getUserValues(user.uid, listId);
+          console.log('Loaded data:', savedData);
+          
           if (savedData?.values) {
             setColumns(savedData.values);
             setCurrentListName(savedData.listName);
@@ -105,18 +130,9 @@ export default function ValuesPrioritization() {
         }
       }
     };
-    loadSavedValues();
-  }, [user]);
 
-  // At the top of the component, add this logging
-  useEffect(() => {
-    console.log('Current user state:', {
-      isAuthenticated: !!user,
-      userId: user?.uid,
-      userEmail: user?.email,
-      fullUserObject: user
-    });
-  }, [user]);
+    loadSavedValues();
+  }, [user?.uid]); // Only depend on user.uid
 
   // Add this state at the top of your component
   const [saveAsName, setSaveAsName] = useState('');
@@ -133,12 +149,6 @@ export default function ValuesPrioritization() {
 
   // Modify handleSaveAs to include more logging
   const handleSaveAs = async () => {
-    console.log('Save attempt - Auth state:', {
-      isAuthenticated: !!user,
-      userId: user?.uid,
-      userEmail: user?.email
-    });
-
     if (!user) {
       toast.error('Please sign in to save your values');
       return;
@@ -151,43 +161,32 @@ export default function ValuesPrioritization() {
 
     setIsSaving(true);
     try {
-      // Clean up the data before saving
-      const dataToSave = {
-        column1: { ...columns.column1, values: columns.column1.values.map(v => ({ ...v })) },
-        column2: { ...columns.column2, values: columns.column2.values.map(v => ({ ...v })) },
-        column3: { ...columns.column3, values: columns.column3.values.map(v => ({ ...v })) },
-        column4: { ...columns.column4, values: columns.column4.values.map(v => ({ ...v })) }
-      };
+      const valuesToSave = columns.column4.values.map(v => ({
+        content: v.content,
+        id: v.id,
+        isHighlighted: v.isHighlighted
+      }));
 
-      console.log('Save attempt - Data:', { 
-        userId: user.uid, 
-        listName: saveAsName,
-        dataToSave 
-      });
-
-      const saved = await saveUserValues(user.uid, dataToSave, saveAsName);
-      console.log('Save result:', saved);
-
+      const saved = await saveUserValues(user.uid, valuesToSave, saveAsName);
+      
       if (saved) {
         toast.success('Values saved successfully!');
         setShowSaveDialog(false);
         setSaveAsName('');
+        setShowNewNameInput(false);
+        router.push('/my-lists');
       } else {
         toast.error('Failed to save values');
       }
-    } catch (error: any) { // Type assertion to handle error.message
-      console.error('Save error details:', {
-        error,
-        message: error.message,
-        code: error.code,
-        stack: error.stack
-      });
+    } catch (error: any) {
+      console.error('Save error:', error);
       toast.error(`Save failed: ${error.message}`);
     } finally {
       setIsSaving(false);
     }
   };
 
+  // Add logging to save function
   const handleSave = () => {
     if (!user) {
       toast.error('Please sign in to save your values');
@@ -199,10 +198,18 @@ export default function ValuesPrioritization() {
       return;
     }
 
+    // Show the save dialog instead of saving directly
     setShowSaveDialog(true);
   };
 
+  // Modify handleValueClick to include logging
   const handleValueClick = (columnId: string, valueId: string) => {
+    console.log('3. Value Clicked:', {
+      columnId,
+      valueId,
+      currentColumnState: columns[columnId].values.length
+    });
+    
     setColumns(prevColumns => {
       const newColumns = { ...prevColumns };
       
@@ -246,7 +253,10 @@ export default function ValuesPrioritization() {
         const sourceColumn = newColumns[columnId];
         const valueIndex = sourceColumn.values.findIndex(v => v.id === valueId);
         
-        if (valueIndex !== -1 && newColumns.column4.values.length < 10) {
+        // Get current column4 length from the previous state
+        const currentColumn4Length = prevColumns.column4.values.length;
+        
+        if (valueIndex !== -1 && currentColumn4Length < 10) {
           const value = sourceColumn.values[valueIndex];
           
           // Remove from source column
@@ -260,8 +270,11 @@ export default function ValuesPrioritization() {
           // Add to column4
           newColumns.column4 = {
             ...newColumns.column4,
-            values: [...newColumns.column4.values, { ...value, isHighlighted: true }],
+            values: [...prevColumns.column4.values, { ...value, isHighlighted: true }],
           };
+        } else if (currentColumn4Length >= 10) {
+          // Optionally add a toast message here when trying to add more than 10 items
+          toast.error('Maximum of 10 priorities reached');
         }
       }
       
@@ -336,9 +349,8 @@ export default function ValuesPrioritization() {
   };
 
   const handleDownload = async () => {
-    const topValues = columns.column4.values;
-    const userName = user?.displayName || undefined;
-    await generateValuesPDF(topValues, userName);
+    const topValues = columns.column4.values.map(v => ({ content: v.content }));
+    await generateValuesPDF(topValues);
   };
 
   const getSelectedValues = () => {
@@ -350,15 +362,28 @@ export default function ValuesPrioritization() {
 
   // Add this useEffect to load saved lists
   useEffect(() => {
+    let mounted = true;
+    
     const loadSavedLists = async () => {
       if (user?.uid) {
-        const lists = await getUserPriorityLists(user.uid);
-        setSavedLists(lists);
-        console.log('Saved lists:', lists);
+        try {
+          const lists = await getUserPriorityLists(user.uid);
+          if (mounted) {
+            setSavedLists(lists);
+            console.log('Saved lists:', lists);
+          }
+        } catch (error) {
+          console.error('Error loading saved lists:', error);
+        }
       }
     };
+    
     loadSavedLists();
-  }, [user]);
+    
+    return () => {
+      mounted = false;
+    };
+  }, [user?.uid]); // Only depend on user.uid
 
   // Add this function to handle list loading
   const handleLoadList = async (listId: string) => {
@@ -428,14 +453,25 @@ export default function ValuesPrioritization() {
     }
   };
 
+  const handlePrint = () => {
+    // Store only the column4 values for printing
+    const valuesToPrint = columns.column4.values.map(v => ({
+      id: v.id,
+      content: v.content,
+      isHighlighted: v.isHighlighted
+    }));
+    localStorage.setItem('print-list', JSON.stringify(valuesToPrint));
+    window.open('/print', '_blank');
+  };
+
   return (
     <div className="min-h-screen bg-white">
       <Header 
         title="Prioritize Your Values"
         onSave={handleSave}
         isSaving={isSaving}
-        onPrint={() => window.print()}
-        onDownload={() => generateValuesPDF(columns.column4.values.map(v => v.content))}
+        onPrint={handlePrint}
+        onDownload={() => generateValuesPDF(columns.column4.values.map(v => ({ content: v.content })))}
       />
 
       <div className="p-4 md:p-8 font-sans">
@@ -660,7 +696,7 @@ export default function ValuesPrioritization() {
       {/* Add this JSX for the save dialog */}
       {showSaveDialog && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full">
             <h3 className="text-lg font-semibold mb-2">Save Priority List</h3>
             {currentListName && !showNewNameInput ? (
               <>
@@ -671,8 +707,7 @@ export default function ValuesPrioritization() {
                   <button
                     onClick={handleSaveExisting}
                     disabled={isSaving}
-                    className={`flex-1 px-4 py-2 bg-gray-900 text-white rounded-md 
-                      ${isSaving ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-800'}`}
+                    className="flex-1 px-4 py-2 bg-gray-900 text-white rounded-md hover:bg-gray-800 disabled:opacity-50"
                   >
                     {isSaving ? 'Updating...' : 'Update Existing'}
                   </button>
@@ -713,8 +748,7 @@ export default function ValuesPrioritization() {
                   <button
                     onClick={handleSaveAs}
                     disabled={isSaving || !saveAsName.trim()}
-                    className={`px-4 py-2 bg-gray-900 text-white rounded-md
-                      ${(isSaving || !saveAsName.trim()) ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-800'}`}
+                    className="px-4 py-2 bg-gray-900 text-white rounded-md hover:bg-gray-800 disabled:opacity-50"
                   >
                     {isSaving ? 'Saving...' : 'Save'}
                   </button>

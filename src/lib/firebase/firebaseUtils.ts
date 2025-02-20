@@ -55,21 +55,33 @@ export const saveUserValues = async (
   listId?: string
 ) => {
   try {
+    // Ensure we have a valid values array
+    const valuesList = Array.isArray(values) ? values : 
+      values?.column4?.values ? values.column4.values :
+      values?.values?.column4?.values ? values.values.column4.values : [];
+
+    // Create a standardized data structure
     const data = {
-      values,
+      values: {
+        column4: {
+          values: valuesList.map((v: { content?: string; id?: string; isHighlighted?: boolean }) => ({
+            content: v.content || '',
+            id: v.id || Math.random().toString(36).substr(2, 9),
+            isHighlighted: Boolean(v.isHighlighted)
+          }))
+        }
+      },
       listName,
       updatedAt: new Date().toISOString(),
-      createdAt: new Date().toISOString()
+      createdAt: listId ? undefined : new Date().toISOString()
     };
 
     if (listId) {
-      // Update existing document
       await updateDoc(doc(db, 'users', userId, 'priorityLists', listId), {
         ...data,
         updatedAt: new Date().toISOString()
       });
     } else {
-      // Create new document
       await addDoc(collection(db, 'users', userId, 'priorityLists'), data);
     }
     return true;
@@ -79,33 +91,78 @@ export const saveUserValues = async (
   }
 };
 
-export const getUserPriorityLists = async (userId: string) => {
+interface ListValue {
+  content: string;
+  id: string;
+  isHighlighted: boolean;
+}
+
+interface FirebaseListData {
+  values: {
+    column4: {
+      values: ListValue[];
+    };
+  };
+  listName: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface PriorityList {
+  id: string;
+  listName: string;
+  createdAt: string;
+  updatedAt: string;
+  values: {
+    column4: {
+      values: ListValue[];
+    };
+  };
+}
+
+export async function getUserPriorityLists(userId: string): Promise<PriorityList[]> {
   try {
     const listsRef = collection(db, 'users', userId, 'priorityLists');
     const querySnapshot = await getDocs(listsRef);
-    return querySnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    }));
+    
+    return querySnapshot.docs.map(doc => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        listName: data.listName || 'Untitled List',
+        createdAt: data.createdAt || new Date().toISOString(),
+        updatedAt: data.updatedAt || data.createdAt || new Date().toISOString(),
+        values: {
+          column4: {
+            values: (data.values?.column4?.values || []).map((v: { content?: string; id?: string; isHighlighted?: boolean }) => ({
+              content: v.content || '',
+              id: v.id || Math.random().toString(36).substr(2, 9),
+              isHighlighted: Boolean(v.isHighlighted)
+            }))
+          }
+        }
+      };
+    });
   } catch (error) {
     console.error('Error getting priority lists:', error);
     return [];
   }
-};
+}
 
-export const getUserValues = async (userId: string, listName: string = 'default') => {
+export const getUserValues = async (userId: string, listId: string) => {
   try {
-    const userValuesRef = doc(db, 'users', userId, 'priorityLists', listName);
-    const docSnap = await getDoc(userValuesRef);
+    const userValuesRef = doc(db, 'users', userId, 'priorityLists', listId)
+    const docSnap = await getDoc(userValuesRef)
+    console.log('Retrieved values:', docSnap.data()) // Debug data
     if (docSnap.exists()) {
-      return docSnap.data();
+      return docSnap.data()
     }
-    return null;
+    return null
   } catch (error) {
-    console.error('Error getting values:', error);
-    return null;
+    console.error('Error getting values:', error)
+    return null
   }
-};
+}
 
 // Storage functions
 export const uploadFile = async (file: File, path: string) => {
