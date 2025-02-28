@@ -3,9 +3,11 @@ import 'jspdf-autotable'
 
 interface Value {
   content: string;
+  id?: string;
+  isHighlighted?: boolean;
 }
 
-export async function generateValuesPDF(values: Value[]): Promise<void> {
+export async function generateValuesPDF(values: Value[], listName: string = 'My Priority List'): Promise<void> {
   try {
     const pdf = new jsPDF({
       orientation: 'portrait',
@@ -17,7 +19,7 @@ export async function generateValuesPDF(values: Value[]): Promise<void> {
     pdf.setFontSize(24)
     pdf.setFont('helvetica', 'bold')
     pdf.setTextColor(33, 33, 33)
-    pdf.text('My Priority List', 40, 40)
+    pdf.text(listName, 40, 40)
 
     // Add timestamp
     pdf.setFontSize(10)
@@ -55,7 +57,9 @@ export async function generateValuesPDF(values: Value[]): Promise<void> {
       )
     }
 
-    pdf.save('my-priority-list.pdf')
+    // Generate a filename based on the list name
+    const filename = listName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') || 'priority-list'
+    pdf.save(`${filename}.pdf`)
   } catch (error) {
     console.error('Error generating PDF:', error)
     throw error

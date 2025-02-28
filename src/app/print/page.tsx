@@ -9,39 +9,34 @@ interface Value {
   isHighlighted: boolean;
 }
 
-interface Values {
-  column4: {
-    values: Value[];
-  };
+interface PrintData {
+  listName: string;
+  values: Value[];
+  createdAt: string;
 }
 
 export default function PrintPage() {
-  const [values, setValues] = useState<Value[]>([]);
+  const [printData, setPrintData] = useState<PrintData | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     // Get values from localStorage
-    const storedValues = localStorage.getItem('print-list');
-    if (storedValues) {
+    const storedData = localStorage.getItem('printList');
+    if (storedData) {
       try {
-        const parsedValues = JSON.parse(storedValues);
-        // Handle both data structures: direct values array or nested object
-        const valuesList = Array.isArray(parsedValues) ? parsedValues : 
-          parsedValues?.column4?.values ? parsedValues.column4.values :
-          parsedValues?.values?.column4?.values ? parsedValues.values.column4.values : [];
+        const parsedData = JSON.parse(storedData);
+        setPrintData(parsedData);
         
-        setValues(valuesList);
-        
-        // Trigger print after values are loaded
+        // Trigger print after data is loaded
         setTimeout(() => {
           window.print();
         }, 500);
       } catch (error) {
-        console.error('Error parsing values:', error);
-        setError('Failed to load values for printing');
+        console.error('Error parsing print data:', error);
+        setError('Failed to load data for printing');
       }
     } else {
-      setError('No values found to print');
+      setError('No data found to print');
     }
   }, []);
 
@@ -54,12 +49,23 @@ export default function PrintPage() {
     );
   }
 
+  if (!printData) {
+    return (
+      <div className="p-8 max-w-2xl mx-auto text-center">
+        <h1 className="text-2xl font-bold text-gray-600 mb-4">Loading...</h1>
+      </div>
+    );
+  }
+
   return (
     <div className="p-8 max-w-2xl mx-auto">
-      <h1 className="text-3xl font-bold text-gray-900 mb-8">My Priority Values</h1>
+      <h1 className="text-3xl font-bold text-gray-900 mb-2">{printData.listName}</h1>
+      <p className="text-sm text-gray-500 mb-8">
+        Created on {new Date(printData.createdAt).toLocaleDateString()}
+      </p>
       
       <div className="space-y-4">
-        {values.map((value, index) => (
+        {printData.values.map((value, index) => (
           <div 
             key={value.id || index}
             className="flex items-center gap-4 p-4 bg-white rounded-lg border border-gray-200"
@@ -75,7 +81,7 @@ export default function PrintPage() {
       </div>
 
       <div className="mt-8 text-sm text-gray-500 text-center">
-        Generated on {new Date().toLocaleDateString()}
+        Printed on {new Date().toLocaleDateString()}
       </div>
     </div>
   );

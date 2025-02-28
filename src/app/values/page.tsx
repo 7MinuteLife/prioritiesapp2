@@ -1,9 +1,8 @@
 'use client'
 
-import { useAuth } from '@/lib/hooks/useAuth'
+import { useAuth } from '@/lib/contexts/AuthContext'
 import { useRouter } from 'next/navigation'
 import { useEffect } from 'react'
-import Navigation from '@/app/components/Navigation'
 import ValuesPrioritization from '@/app/components/ValuesPrioritization'
 
 export default function ValuesPage() {
@@ -33,7 +32,6 @@ export default function ValuesPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <Navigation />
       <ValuesPrioritization />
     </div>
   )

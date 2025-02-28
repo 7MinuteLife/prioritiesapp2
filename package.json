@@ -19,6 +19,7 @@
     "ai": "^3.4.33",
     "date-fns": "^3.6.0",
     "firebase": "^10.7.0",
+    "firebase-admin": "^13.1.0",
     "framer-motion": "^11.3.31",
     "jspdf": "^2.5.2",
     "jspdf-autotable": "^3.8.4",

@@ -4,7 +4,6 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { useAuth } from '@/lib/hooks/useAuth'
 import { useRouter } from 'next/navigation'
-import Navigation from '@/app/components/Navigation'
 
 export default function HomePage() {
   const { user, loading, signOut } = useAuth()
@@ -12,7 +11,7 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-[#F5F5F3] flex flex-col">
-      <Navigation />
+      {/* Navigation is already included in the layout */}
       
       {/* Hero Section - balanced spacing */}
       <main className="flex-1">
@@ -93,7 +92,7 @@ export default function HomePage() {
 
             {/* Right Column - constrained image */}
             <div className="relative flex items-center">
-              <div className="w-full overflow-hidden rounded-lg shadow-xl">
+              <div className="w-full overflow-hidden rounded-lg shadow-xl relative h-[400px]">
                 <Image
                   src="/images/priorities-dashboard.png"
                   alt="7minute.ai Dashboard"

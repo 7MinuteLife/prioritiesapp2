@@ -1,13 +1,13 @@
 'use client'
 
 import Link from 'next/link'
-import { useAuth } from '@/lib/hooks/useAuth'
+import { useAuth } from '@/lib/contexts/AuthContext'
 
 export default function Navigation() {
   const { user, loading, signOut } = useAuth()
 
   return (
-    <nav className="border-b bg-white">
+    <nav className="border-b bg-white w-full">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex h-16 items-center justify-between">
           <div className="flex items-center">
